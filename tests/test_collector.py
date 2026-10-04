@@ -58,6 +58,18 @@ class Tests(unittest.TestCase):
             self.assertEqual(json.loads((root/'checkpoint.json').read_text()), {})
             self.assertTrue((root/'review_queue.xlsx').exists())
 
+    def test_review_export_does_not_mix_historical_canary(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t)
+            (root/'candidates.csv').write_text('name,official_url\nCANARY_FAKE,https://example.invalid/\n')
+            run(root, fetcher=FakeFetcher())
+            (root/'candidates.csv').write_text('name,official_url\nCURRENT_FAKE,https://other.invalid/\n')
+            run(root, fetcher=FakeFetcher())
+            self.assertEqual(len(json.loads((root/'checkpoint.json').read_text())), 2)
+            exported = (root/'review_queue.csv').read_text()
+            self.assertNotIn('CANARY_FAKE', exported)
+            self.assertIn('CURRENT_FAKE', exported)
+
     def test_formula_injection(self):
         for s in ['=1+1',' +cmd','-2','@SUM(A1)']:
             self.assertTrue(safe_cell(s).startswith("'"))

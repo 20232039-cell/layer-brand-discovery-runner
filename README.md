@@ -20,7 +20,7 @@ Run `python3 -m brand_discovery --private-root /absolute/private/directory --lim
 
 Run tests with `python3 -m unittest discover -s tests -v`.
 
-Outputs within the same private directory: `evidence/<candidate hash>.json`, `checkpoint.json`, `review_queue.csv`, `review_queue.xlsx`. Files use restrictive permissions under CLI. Original candidates and canonical CSV/workbook are never changed. Source row changes get a new checkpoint ID; unchanged terminal results are skipped. To retry a failed candidate, deliberately remove only its checkpoint entry in the private directory after reviewing the failure. Review exports include historical checkpoint rows; they are not a current approved master catalog.
+Outputs within the same private directory: `evidence/<candidate hash>.json`, `checkpoint.json`, `review_queue.csv`, `review_queue.xlsx`. Files use restrictive permissions under CLI. Original candidates and canonical CSV/workbook are never changed. Source row changes get a new checkpoint ID; unchanged terminal results are skipped. To retry a failed candidate, deliberately remove only its checkpoint entry in the private directory after reviewing the failure. Review exports include only the current candidate input rows; historical checkpoint/evidence records remain privately preserved. Exports are not an approved master catalog.
 
 ## What the evidence means
 

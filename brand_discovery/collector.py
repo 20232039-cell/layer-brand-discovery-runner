@@ -238,7 +238,8 @@ def run(root, limit=30, seconds=1800, fetcher=None):
         atomic_json(checkpoint_path, checkpoint)
     fields = ['candidate_id', 'name', 'submitted_url', 'status', 'checked_at', 'source_schema', 'source_verdict', 'identity_status', 'korean_brand_status', 'apparel_primary_status', 'current_sale_status', 'cart_function_status']
     atomic_json(checkpoint_path, checkpoint)
-    output = list(checkpoint.values())
+    active_ids = {stable_id(row) for row in rows}
+    output = [value for key, value in checkpoint.items() if key in active_ids]
     write_csv(root / 'review_queue.csv', output, fields)
     from .xlsx import write_xlsx
     write_xlsx(root / 'review_queue.xlsx', output, fields)
