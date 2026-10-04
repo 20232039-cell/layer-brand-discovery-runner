@@ -213,12 +213,18 @@ def atomic_json(path, value):
 
 def safe_cell(value):
     s = str(value)
-    return "'" + s if s.lstrip().startswith(('=', '+', '-', '@')) else s
+    # Formula prefixes remain dangerous after leading whitespace. Leading control
+    # characters are neutralized even when no formula follows; spreadsheet import
+    # behavior varies. Keep the original value intact after the apostrophe.
+    probe = s.lstrip(' ')
+    has_control_prefix = bool(probe) and (ord(probe[0]) < 32 or ord(probe[0]) == 127)
+    dangerous = has_control_prefix or s.lstrip().startswith(('=', '+', '-', '@'))
+    return "'" + s if dangerous else s
 
 def write_csv(path, rows, fields):
     with open(str(path) + '.tmp', 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
+        w.writerow({k: safe_cell(k) for k in fields})
         w.writerows({k: safe_cell(r.get(k, '')) for k in fields} for r in rows)
     Path(str(path) + '.tmp').replace(path)
 

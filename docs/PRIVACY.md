@@ -7,7 +7,7 @@
 - Untrusted pull request code runs offline synthetic tests with no private-data credential.
 - Private data directory must be outside the public checkout (not its parent or child) and have an explicit local marker. Hidden marker does not verify remote visibility.
 - No normal collection console output; generic failure only. Exception bodies/URLs never recorded. HTTP status/refusal codes stored privately. No network fetch credentials.
-- Source text, emails, URLs, hashes, checkpoints and exports remain in private root. CSV formula injection escaped; XLSX values explicitly strings.
+- Source text, emails, URLs, hashes, checkpoints and exports remain in private root. CSV formula prefixes (=,+,-,@ after whitespace) and leading control characters are apostrophe-neutralized in values and headers; raw JSON evidence is preserved unchanged. XLSX cells use explicit inline strings with no formula or external-link elements. XML-invalid characters are replaced with the replacement glyph only in XLSX display text; raw JSON remains unchanged and literal carriage returns are preserved via XML entities. Offline regressions parse generated CSV/XLSX and check delimiter/newline boundaries; they do not execute formulas or claim validation in every spreadsheet application.
 - No packages installed, AI APIs called, secrets copied, or credential grants created.
 
 ## Before any production activation

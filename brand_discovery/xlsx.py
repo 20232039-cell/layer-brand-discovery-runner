@@ -10,11 +10,21 @@ def column(n):
         s = chr(65 + r) + s
     return s
 
+def literal_xml_text(value):
+    # XML 1.0 cannot represent NUL and most C0 controls. Replace only in the
+    # display export; original input/evidence values remain untouched in JSON.
+    def valid(char):
+        n = ord(char)
+        return n in (9, 10, 13) or 0x20 <= n <= 0xD7FF or 0xE000 <= n <= 0xFFFD or 0x10000 <= n <= 0x10FFFF
+    text = ''.join(c if valid(c) else '\ufffd' for c in str(value))
+    # Preserve literal CR instead of XML's automatic CR-to-LF normalization.
+    return escape(text).replace('\r', '&#13;')
+
 def write_xlsx(path, rows, fields):
     values = [fields] + [[str(r.get(f, '')) for f in fields] for r in rows]
     content = []
     for i, row in enumerate(values, 1):
-        cells = ''.join(f'<c r="{column(j)}{i}" t="inlineStr"><is><t xml:space="preserve">{escape(str(v))}</t></is></c>' for j, v in enumerate(row, 1))
+        cells = ''.join(f'<c r="{column(j)}{i}" t="inlineStr"><is><t xml:space="preserve">{literal_xml_text(v)}</t></is></c>' for j, v in enumerate(row, 1))
         content.append(f'<row r="{i}">{cells}</row>')
     tmp = Path(str(path) + '.tmp')
     with ZipFile(tmp, 'w', ZIP_DEFLATED) as z:
