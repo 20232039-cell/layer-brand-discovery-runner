@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.robotparser import RobotFileParser
+from .schema import adapt
 
 AGENT = 'LayerBrandEvidenceBot/0.1'
 LIMIT = 2_000_000
@@ -198,8 +199,9 @@ def run(root, limit=30, seconds=1800, fetcher=None):
         fetcher.deadline = deadline
     for row in rows:
         ident = stable_id(row)
-        name = row.get('브랜드(영문)') or row.get('브랜드(한글)') or row.get('name', '')
-        raw_url = row.get('공식몰 링크') or row.get('official_url', '')
+        source = adapt(row)
+        name = source['name']
+        raw_url = source['official_url']
         try:
             url = canonical(raw_url)
         except (Refused, ValueError):
@@ -213,7 +215,7 @@ def run(root, limit=30, seconds=1800, fetcher=None):
         if processed >= limit or time.monotonic() >= deadline:
             break
         processed += 1
-        result = {'candidate_id': ident, 'name': name, 'submitted_url': raw_url,
+        result = {**source, 'candidate_id': ident, 'name': name, 'submitted_url': raw_url,
                   'checked_at': datetime.now(timezone.utc).isoformat(), 'status': 'needs_review'}
         if not url:
             result['status'] = 'invalid_or_unsupported_url'
@@ -234,7 +236,7 @@ def run(root, limit=30, seconds=1800, fetcher=None):
         atomic_json(evidence_dir / (ident + '.json'), result)
         checkpoint[ident] = result
         atomic_json(checkpoint_path, checkpoint)
-    fields = ['candidate_id', 'name', 'submitted_url', 'status', 'checked_at', 'identity_status', 'korean_brand_status', 'apparel_primary_status', 'current_sale_status', 'cart_function_status']
+    fields = ['candidate_id', 'name', 'submitted_url', 'status', 'checked_at', 'source_schema', 'source_verdict', 'identity_status', 'korean_brand_status', 'apparel_primary_status', 'current_sale_status', 'cart_function_status']
     atomic_json(checkpoint_path, checkpoint)
     output = list(checkpoint.values())
     write_csv(root / 'review_queue.csv', output, fields)

@@ -1,12 +1,12 @@
 # LAYER brand evidence runner
 
-A conservative, dependency-free candidate-to-review pipeline. Public code and synthetic tests are separated from private candidates, exclusions, evidence and outputs. This implementation is **local-tested and not deployed**. It does not discover unlimited new brands automatically or confirm an eligible brand without review.
+A conservative, dependency-free candidate-to-review pipeline. Public code and synthetic tests are separated from private candidates, exclusions, evidence and outputs. Public code and synthetic CI are deployed; actual collection is **disabled pending secure setup and live privacy validation**. It does not discover unlimited new brands automatically or confirm an eligible brand without review.
 
 ## Status and deployment boundary
 
 - Ready locally: bounded serial HTTPS collection, robots.txt, rate limiting, identity review flags, exclusion/dedup review, resume checkpoints, CSV and XLSX review exports.
 - Public Actions CI: offline synthetic tests only. A separate bounded manual project data-build workflow is owner-gated off by default, with no public artifacts or caches.
-- Actual hosted collection: pending architecture/policy review, repository creation, credential setup and end-to-end privacy testing. The implemented private transfer adapter verifies visibility, uploads allowlisted files only, and commits with conflict checks. CLI requires an explicit approved data-build mode in Actions.
+- Actual hosted collection: pending credential setup and end-to-end privacy testing. The implemented private transfer adapter verifies visibility, uploads allowlisted files only, and commits with conflict checks. CLI requires an explicit approved data-build mode in Actions.
 - No scheduling, paid LLM calls, external model provider, browser cookies, passwords, Instagram login or automatic decisions.
 - GitHub-hosted Actions use must satisfy its current [additional-product terms](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#actions); free public minutes are not a permission for unrestricted general-purpose collection. A genuine bounded LAYER software data-build/publication workflow may be reviewed, not disguised as CI. No compliance claim is made here.
 
@@ -30,4 +30,10 @@ A single origin's homepage is fetched at a time; 2s minimum interval honors long
 
 ## Privacy release gate
 
-Read `docs/PRIVACY.md`. Do not enable the gated build before the privacy release gate or upload real inputs into this repository. No credential acquisition/configuration is included. Proposed repositories: `layer-brand-discovery-runner` (public code) and `layer-brand-discovery-data` (private data). Creating them and remote end-to-end testing are still pending.
+Read `docs/PRIVACY.md`. Do not enable the gated build before the privacy release gate or upload real inputs into this repository. No credential acquisition/configuration is included. Proposed repositories: `layer-brand-discovery-runner` (public code) and `layer-brand-discovery-data` (private data). Both repositories are initialized. Remote end-to-end testing is still pending.
+
+## Input provenance and private canary
+
+The adapter accepts the 17-column Korean master schema and reconciliation queue columns (including `공식몰`, `판정`, `verification_excel_row`). It preserves every input value in private evidence as `source_record`; pre-existing decisions stay separately labeled `source_verdict`. New heuristic signals always remain unverified. The master is not written or promoted automatically.
+
+The manual `privacy-canary.yml` workflow is separately gated by `ENABLE_PRIVATE_CANARY=true`; leave the production `ENABLE_PRIVATE_DATA_BUILD` gate off. It accepts two synthetic CANARY records at `canary.invalid/success` and `/error`, makes no website requests, verifies empty-input behavior and checkpoint resume, and saves only to the private repo. After a run, audit all public logs, annotations, artifacts, caches, summaries and commit contents for the private canary markers before actual data is seeded. Passing offline tests alone is insufficient.
