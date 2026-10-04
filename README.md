@@ -37,3 +37,11 @@ Read `docs/PRIVACY.md`. Do not enable the gated build before the privacy release
 The adapter accepts the 17-column Korean master schema and reconciliation queue columns (including `공식몰`, `판정`, `verification_excel_row`). It preserves every input value in private evidence as `source_record`; pre-existing decisions stay separately labeled `source_verdict`. New heuristic signals always remain unverified. The master is not written or promoted automatically.
 
 The manual `privacy-canary.yml` workflow is separately gated by `ENABLE_PRIVATE_CANARY=true`; leave the production `ENABLE_PRIVATE_DATA_BUILD` gate off. It accepts two synthetic CANARY records at `canary.invalid/success` and `/error`, makes no website requests, verifies empty-input behavior and checkpoint resume, and saves only to the private repo. After a run, audit all public logs, annotations, artifacts, caches, summaries and commit contents for the private canary markers before actual data is seeded. Passing offline tests alone is insufficient.
+
+## Evidence schema v2
+
+New evidence calls the extracted text `html_text_excerpt`, explicitly unrendered: CSS-hidden template text, footer dates and JavaScript placeholders may be included. It does not establish visibility, recent launches, stock or working cart behavior. Existing v1 evidence is retained unchanged; its legacy `visible_text_excerpt` name did not prove rendered visibility either.
+
+Mailto targets, static anchor labels and literal addresses observed elsewhere in page text are kept separately. Disagreement creates review flags, not a confirmed parser error or a verified official contact. `email_links_observed` remains a raw target list for compatibility and must not be imported directly as official email. Multiple legitimate contact roles can also explain differing addresses. No email is sent.
+
+Platform hints now include literal Sixshop evidence when present. Hints are separate from canonical master platform values and remain unverified; absent evidence remains unknown. No brand status is promoted, and old checkpoints are not automatically refetched or reclassified.

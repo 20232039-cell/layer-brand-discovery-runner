@@ -117,7 +117,8 @@ class Fetcher:
 class Page(HTMLParser):
     def __init__(self):
         super().__init__()
-        self.parts, self.links, self.jsonld = [], [], []
+        self.parts, self.links, self.jsonld, self.anchors = [], [], [], []
+        self.current_anchor = None
         self.skip = 0
         self.structured = False
     def handle_starttag(self, tag, attrs):
@@ -127,7 +128,11 @@ class Page(HTMLParser):
             self.structured = tag == 'script' and a.get('type') == 'application/ld+json'
         if tag == 'a' and a.get('href'):
             self.links.append(a['href'])
+            self.current_anchor = {'href': a['href'], 'parts': []}
+            self.anchors.append(self.current_anchor)
     def handle_endtag(self, tag):
+        if tag == 'a':
+            self.current_anchor = None
         if tag in ('script', 'style'):
             self.skip = max(0, self.skip - 1)
             self.structured = False
@@ -136,21 +141,66 @@ class Page(HTMLParser):
             self.jsonld.append(data)
         elif not self.skip:
             self.parts.append(data)
+            if self.current_anchor is not None:
+                self.current_anchor['parts'].append(data)
+
+def observed_addresses(text):
+    """Literal text addresses only; normalize spaces around @ without guessing."""
+    pattern = r'[A-Za-z0-9._%+-]+[ \t]*@[ \t]*[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+    return [{'literal': m.group(), 'address': re.sub(r'[ \t]', '', m.group()),
+             'context': text[max(0, m.start()-50):m.end()+50]}
+            for m in re.finditer(pattern, text)]
 
 def extract(url, html):
     page = Page()
     page.feed(html)
     text = re.sub(r'\s+', ' ', ' '.join(page.parts))
     apparel = sorted(set(re.findall(r'상의|하의|아우터|원피스|니트|셔츠|팬츠|티셔츠|\b(?:SHIRT|PANTS|OUTER|KNIT|DRESS)\b', text, re.I)))
-    emails = sorted({x[7:].split('?')[0] for x in page.links if x.startswith('mailto:') and re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', x[7:].split('?')[0])})
+    text_addresses = observed_addresses(text)
+    text_address_set = {x['address'].lower() for x in text_addresses}
+    email_evidence = []
+    for anchor in page.anchors:
+        href = anchor['href']
+        if not href.lower().startswith('mailto:'):
+            continue
+        target = href[7:].split('?')[0]
+        if not re.fullmatch(r'[^\s@]+@[^\s@]+\.[^\s@]+', target):
+            continue
+        label = re.sub(r'\s+', ' ', ' '.join(anchor['parts'])).strip()
+        label_addresses = observed_addresses(label)
+        label_set = {x['address'].lower() for x in label_addresses}
+        flags = []
+        if label_set and target.lower() not in label_set:
+            flags.append('mailto_target_differs_from_anchor_label')
+        if text_address_set and target.lower() not in text_address_set:
+            flags.append('mailto_target_absent_from_other_observed_text_addresses')
+        email_evidence.append({'mailto_target': target, 'static_anchor_label': label,
+                               'label_addresses_observed': label_addresses,
+                               'discrepancy_flags': flags,
+                               'official_contact_status': 'unverified'})
+    emails = sorted({x['mailto_target'] for x in email_evidence})
     instagram = sorted({urljoin(url, x) for x in page.links if urlsplit(urljoin(url, x)).hostname in ('instagram.com', 'www.instagram.com')})
-    platforms = [name for name, marker in [('cafe24', 'cafe24'), ('imweb', 'imweb'), ('shopify', 'cdn.shopify.com')] if marker in html.lower()]
-    return {'visible_text_excerpt': text[:12000], 'apparel_terms': apparel,
-            'email_links_observed': emails, 'instagram_links_observed_unvisited': instagram,
-            'platform_hints': platforms, 'cart_text_observed': bool(re.search('장바구니|add to cart', text, re.I)),
+    platform_evidence = []
+    for name, marker in [('cafe24', 'cafe24'), ('imweb', 'imweb'), ('shopify', 'cdn.shopify.com'), ('sixshop', 'sixshop')]:
+        match = re.search(re.escape(marker), html, re.I)
+        if match:
+            platform_evidence.append({'platform_hint': name, 'matched_literal': match.group(),
+                                      'source': 'static_html', 'status': 'unverified_hint'})
+    return {'evidence_schema_version': 2,
+            'html_text_excerpt': text[:12000],
+            'text_extraction_method': 'static_html_excluding_script_style_not_rendered',
+            'rendered_visibility_verified': False,
+            'apparel_terms': apparel, 'email_links_observed': emails,
+            'email_link_evidence': email_evidence,
+            'email_text_evidence': text_addresses,
+            'email_contact_status': 'unverified_review_discrepancies' if any(x['discrepancy_flags'] for x in email_evidence) else 'unverified',
+            'instagram_links_observed_unvisited': instagram,
+            'platform_hints': [x['platform_hint'] for x in platform_evidence],
+            'platform_evidence': platform_evidence,
+            'cart_text_observed': bool(re.search('장바구니|add to cart', text, re.I)),
             'identity_status': 'unverified', 'korean_brand_status': 'unverified',
             'apparel_primary_status': 'unverified', 'current_sale_status': 'unverified',
-            'cart_function_status': 'not_tested'}
+            'recency_status': 'unverified', 'cart_function_status': 'not_tested'}
 
 def stable_id(row):
     return hashlib.sha256(json.dumps(row, sort_keys=True, ensure_ascii=False).encode()).hexdigest()

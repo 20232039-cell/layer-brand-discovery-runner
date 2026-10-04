@@ -23,7 +23,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(r['current_sale_status'], 'unverified')
         self.assertEqual(r['cart_function_status'], 'not_tested')
         self.assertTrue(r['cart_text_observed'])
-        self.assertNotIn('secret script', r['visible_text_excerpt'])
+        self.assertNotIn('secret script', r['html_text_excerpt'])
     def test_private_guard(self):
         with tempfile.TemporaryDirectory() as t:
             root = Path(t)
