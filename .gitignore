@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env*
+private-data/
+data/
+outputs/
+*.csv
+*.xlsx
+*.jsonl
+*.log
+checkpoint.json

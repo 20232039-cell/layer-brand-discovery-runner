@@ -1,0 +1,48 @@
+name: bounded-private-project-data-build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-project-data-build
+  cancel-in-progress: false
+jobs:
+  build:
+    # Off until the owner reviews policy, private repository and credential setup.
+    if: ${{ vars.ENABLE_PRIVATE_DATA_BUILD == 'true' && github.ref == 'refs/heads/main' && github.repository == '20232039-cell/layer-brand-discovery-runner' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Read approved private inputs
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPOSITORY: ${{ secrets.DATA_REPOSITORY }}
+        shell: bash
+        run: |
+          set +x
+          python3 -m brand_discovery.private_sync download --root "$RUNNER_TEMP/layer-private" >/dev/null 2>&1 || { echo 'Private input transfer failed.'; exit 1; }
+      - name: Build bounded private review dataset
+        shell: bash
+        run: |
+          set +x
+          env -i PATH="$PATH" HOME="$RUNNER_TEMP" LAYER_APPROVED_DATA_BUILD=true GITHUB_ACTIONS=true \
+            python3 -m brand_discovery --private-root "$RUNNER_TEMP/layer-private" --limit 30 --seconds 1800 \
+            >/dev/null 2>&1 || { echo 'Private data build stopped.'; exit 1; }
+      - name: Save checkpoint and outputs privately
+        if: ${{ !cancelled() && success() }}
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPOSITORY: ${{ secrets.DATA_REPOSITORY }}
+        shell: bash
+        run: |
+          set +x
+          python3 -m brand_discovery.private_sync upload --root "$RUNNER_TEMP/layer-private" >/dev/null 2>&1 || { echo 'Private output transfer failed.'; exit 1; }
+      - name: Remove temporary private files
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set +x
+          python3 -c 'import os,shutil; shutil.rmtree(os.path.join(os.environ["RUNNER_TEMP"], "layer-private"), ignore_errors=True)' >/dev/null 2>&1
