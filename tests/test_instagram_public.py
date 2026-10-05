@@ -50,15 +50,16 @@ class InstagramTests(unittest.TestCase):
     def test_only_normal_profile_urls(self):
         for url in ['http://www.instagram.com/test/','https://www.instagram.com/accounts/login/','https://www.instagram.com/test/?__a=1','https://user:password@www.instagram.com/test/','https://www.instagram.com:444/test/','https://example.invalid/test/','https://www.instagram.com/p/123/','https://www.instagram.com/../','https://www.instagram.com/./']:
             with self.assertRaises(ValueError):profile_identity(url)
-    def test_robots_denial_prevents_profile_request(self):
+    def test_single_normal_profile_get_without_robots_precheck(self):
         f=PublicFetcher()
-        with patch.object(f,'raw',return_value=(200,{},b'User-agent: *\nDisallow: /')) as raw:
-            self.assertEqual(f.get(URL)['status'],'robots_disallow');raw.assert_called_once_with('/robots.txt')
+        with patch.object(f,'raw',return_value=(200,{'content-type':'text/html'},fixture().encode())) as raw:
+            self.assertEqual(f.get(URL)['status'],'observed_exact')
+            raw.assert_called_once_with('/synthetic_test_01/')
     def test_http_and_redirect_stops_no_follow(self):
-        for status,headers,expected in [(403,{},'http_403'),(429,{},'http_429'),(501,{},'http_5xx'),(504,{},'http_5xx'),(302,{'location':'/accounts/login/'},'login_required'),(302,{'location':'/challenge/'},'challenge'),(302,{'location':'https://example.invalid/'},'redirect_refused')]:
+        for status,headers,expected in [(403,{},'http_403'),(429,{},'http_429'),(451,{},'http_451'),(501,{},'http_5xx'),(504,{},'http_5xx'),(302,{'location':'/accounts/login/'},'login_required'),(302,{'location':'/challenge/'},'challenge'),(302,{'location':'https://example.invalid/'},'redirect_refused')]:
             f=PublicFetcher()
-            with patch.object(f,'raw',side_effect=[(200,{},b'User-agent: *\nAllow: /'),(status,headers,b'')]) as raw:
-                self.assertEqual(f.get(URL)['status'],expected);self.assertEqual(raw.call_count,2)
+            with patch.object(f,'raw',return_value=(status,headers,b'')) as raw:
+                self.assertEqual(f.get(URL)['status'],expected);self.assertEqual(raw.call_count,1)
     def test_spaced_numbers_not_truncated_into_exact_counts(self):
         for display in ['1 234 Followers','1\u202f234 Followers','팔로워 1 234명','팔로워 1\u00a0234명']:
             r=parse_profile(fixture(display),URL)
@@ -66,15 +67,14 @@ class InstagramTests(unittest.TestCase):
             self.assertIsNone(r['nullable_count'])
         self.assertEqual(parse_profile(fixture('팔로워 1,234, 팔로잉 5명'),URL)['nullable_count'],1234)
 
-    def test_html_robots_login_stops_without_profile_request(self):
-        f=PublicFetcher()
-        with patch.object(f,'raw',return_value=(200,{'content-type':'text/html'},b'<form action="/accounts/login/"><input type="password"></form>')) as raw:
-            self.assertEqual(f.get(URL)['status'],'login_required')
-            raw.assert_called_once_with('/robots.txt')
-        f=PublicFetcher()
-        with patch.object(f,'raw',return_value=(200,{'content-type':'text/html'},b'<html>Unexpected error</html>')) as raw:
-            self.assertEqual(f.get(URL)['status'],'robots_unavailable')
-            raw.assert_called_once_with('/robots.txt')
+    def test_public_login_challenge_country_pages_stop(self):
+        for html,expected in [('<form action="/accounts/login/"><input type="password"></form>','login_required'),
+                              ('<title>CAPTCHA</title>','challenge'),
+                              ('<html>This content is not available in your country</html>','country_restricted')]:
+            f=PublicFetcher()
+            with patch.object(f,'raw',return_value=(200,{'content-type':'text/html'},html.encode())) as raw:
+                self.assertEqual(f.get(URL)['status'],expected)
+                raw.assert_called_once_with('/synthetic_test_01/')
 
     def write_input(self,root,count=3):
         with (root/'instagram_profiles.csv').open('w',newline='') as f:
@@ -94,6 +94,18 @@ class InstagramTests(unittest.TestCase):
             self.assertIsNone(report['results'][1]['attempted_at'])
             self.assertEqual(json.loads((root/'instagram_history.json').read_text())[0],old)
             self.assertEqual(len(output_files(root,profile=True)),4)
+    def test_all_access_restrictions_stop_whole_batch(self):
+        for status in ['http_401','http_403','http_429','http_451','http_5xx','country_restricted','login_required','challenge','redirect_refused']:
+            class Blocked:
+                calls=0
+                def get(self,url):self.calls+=1;return {'status':status}
+            with tempfile.TemporaryDirectory() as t:
+                root=Path(t);self.write_input(root);fetcher=Blocked();report=run(root,fetcher)
+                self.assertEqual(fetcher.calls,1)
+                self.assertTrue(report['stopped_early'])
+                self.assertTrue(all(r['nullable_count'] is None for r in report['results']))
+                self.assertEqual(report['results'][1]['status'],'skipped_after_stop')
+
     def test_limit_and_verified_input(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t);self.write_input(root,count=4)

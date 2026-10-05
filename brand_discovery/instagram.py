@@ -12,14 +12,13 @@ import ssl
 import sys
 import time
 from urllib.parse import urlsplit, urljoin
-from urllib.robotparser import RobotFileParser
 from .collector import PinnedTLS, atomic_json, validate_private_root, write_csv
 from .xlsx import write_xlsx
 
 AGENT = 'LayerPublicProfileEvidence/0.1'
 HOST = 'www.instagram.com'
 STOP_STATUSES = {'robots_disallow','robots_unavailable','login_required','challenge',
-                 'http_5xx','http_401','http_403','http_429','http_500','http_502','http_503','redirect_refused','identity_mismatch',
+                 'country_restricted','rate_budget_exceeded','http_451','http_5xx','http_401','http_403','http_429','http_500','http_502','http_503','redirect_refused','identity_mismatch',
                  'response_too_large','network_error','unsupported_response'}
 RESERVED = {'accounts','explore','p','reel','reels','stories','direct','about','developer','legal','challenge','web','api'}
 
@@ -68,10 +67,12 @@ def parse_profile(html,url):
     expected=profile_identity(url);page=MetaPage();page.feed(html)
     if page.stop_hint:return {'status':page.stop_hint}
     surface=' '.join(page.surface).lower()
+    if any(x in surface for x in ('not available in your country','not available in your region',"isn't available in your country",'해당 국가에서 이용할 수','회원님의 국가에서는')):
+        return {'status':'country_restricted'}
     if any(x in surface for x in ('please log in to continue','log in to continue','login to continue','sign in to continue','log in to see photos and videos','로그인하여 계속')):return {'status':'login_required'}
     if any(x in surface for x in ('confirm you are human','verify you are human','please wait a few minutes before you try again')):return {'status':'challenge'}
     title=' '.join(page.titles+page.meta.get('og:title',[]))
-    if re.search(r'challenge|checkpoint|confirm (?:your|you)|verify (?:your|you)|security check|로봇|본인 확인',title,re.I):
+    if re.search(r'captcha|challenge|checkpoint|confirm (?:your|you)|verify (?:your|you)|security check|로봇|본인 확인',title,re.I):
         return {'status':'challenge'}
     if re.search(r'(?:log\s*in|login|로그인)\s*(?:[•|\-–]|to (?:continue|instagram))',title,re.I):
         return {'status':'login_required'}
@@ -108,10 +109,10 @@ def parse_profile(html,url):
     return result
 
 class PublicFetcher:
-    def __init__(self):self.last=0;self.robots=None;self.delay=5
+    def __init__(self):self.last=0;self.delay=5
     def raw(self,path):
         wait=self.delay-(time.monotonic()-self.last)
-        if wait>60:return 'robots_unavailable',{},b''
+        if wait>60:return 'rate_budget_exceeded',{},b''
         if wait>0:time.sleep(wait)
         self.last=time.monotonic()
         conn=PinnedTLS(HOST,timeout=15,context=ssl.create_default_context())
@@ -124,22 +125,7 @@ class PublicFetcher:
         finally:conn.close()
     def get(self,url):
         handle=profile_identity(url);url='https://'+HOST+'/'+handle+'/'
-        if self.robots is None:
-            status,headers,body=self.raw('/robots.txt')
-            if status in (403,429):return {'status':'http_'+str(status)}
-            if status!=200:return {'status':'robots_unavailable'}
-            robots_text=body.decode('utf-8','replace')
-            # HTML login/challenge/error pages are never interpreted as allow-all robots.
-            if 'html' in headers.get('content-type','').lower() or robots_text.lstrip().startswith('<'):
-                guard=parse_profile(robots_text,url)
-                return {'status':guard['status'] if guard['status'] in ('login_required','challenge') else 'robots_unavailable'}
-            if not re.search(r'^\s*User-agent\s*:',robots_text,re.I|re.M):
-                return {'status':'robots_unavailable'}
-            rp=RobotFileParser();rp.parse(robots_text.splitlines())
-            self.robots=rp
-            rate=rp.request_rate(AGENT) or rp.request_rate('*')
-            self.delay=max(self.delay,rp.crawl_delay(AGENT) or rp.crawl_delay('*') or 0,rate.seconds/rate.requests if rate else 0)
-        if not self.robots.can_fetch(AGENT,url):return {'status':'robots_disallow'}
+        # Owner-requested normal public GET; no robots precheck or alternate route.
         status,headers,body=self.raw('/'+handle+'/')
         if status in (403,429):return {'status':'http_'+str(status)}
         if isinstance(status,str):return {'status':status}
@@ -178,7 +164,7 @@ def run(root,fetcher=None):
             if result['status'] in STOP_STATUSES:halted=True
         results.append(result)
     report={'schema_version':1,'run_completed_at':datetime.now(timezone.utc).isoformat(),
-            'stopped_early':halted,'logged_out_public_html_only':True,'results':results}
+            'stopped_early':halted,'logged_out_public_html_only':True,'robots_precheck_performed':False,'results':results}
     # A new run never replaces a previous exact success with a fake zero.
     history_path=root/'instagram_history.json'
     history=json.loads(history_path.read_text()) if history_path.exists() else []
