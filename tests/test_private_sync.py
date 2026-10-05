@@ -76,3 +76,23 @@ class SyncTests(unittest.TestCase):
             self.assertNotIn(banned,text)
 
 if __name__=='__main__':unittest.main()
+
+class ProfileSyncTests(unittest.TestCase):
+    def test_profile_download_upload_isolated_allowlist(self):
+        class ProfileAPI(FakeAPI):
+            def request(self,method,path,data=None):
+                if path.startswith('/git/trees/'):
+                    return {'tree':[{'path':'instagram_profiles.csv','type':'blob','mode':'100644','sha':'c'*40,'size':100}]}
+                if method=='GET' and path.startswith('/git/blobs/'):
+                    return {'encoding':'base64','content':base64.b64encode(b'brand_id,profile_url,official_source_url,profile_link_verified\n').decode()}
+                return super().request(method,path,data)
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t)/'data';api=ProfileAPI();download(api,root,profile=True)
+            for name in ('instagram_history.json','instagram_results.json','instagram_results.csv','instagram_results.xlsx'):(root/name).write_bytes(b'synthetic')
+            (root/'checkpoint.json').write_text('NOT_FOR_PROFILE_UPLOAD')
+            with self.assertRaises(SyncError):upload(api,root,profile=False)
+            upload(api,root,profile=True)
+            tree=[c[2]['tree'] for c in api.calls if isinstance(c,tuple) and c[:2]==('POST','/git/trees')][0]
+            self.assertEqual(len(tree),4)
+            self.assertTrue(all(x['path'].startswith('instagram_') for x in tree))
+            self.assertNotIn('NOT_FOR_PROFILE_UPLOAD',str(api.calls))

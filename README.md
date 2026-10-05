@@ -45,3 +45,13 @@ New evidence calls the extracted text `html_text_excerpt`, explicitly unrendered
 Mailto targets, static anchor labels and literal addresses observed elsewhere in page text are kept separately. Disagreement creates review flags, not a confirmed parser error or a verified official contact. `email_links_observed` remains a raw target list for compatibility and must not be imported directly as official email. Multiple legitimate contact roles can also explain differing addresses. No email is sent.
 
 Platform hints now include literal Sixshop evidence when present. Hints are separate from canonical master platform values and remain unverified; absent evidence remains unknown. No brand status is promoted, and old checkpoints are not automatically refetched or reclassified.
+
+## Logged-out public profile pilot
+
+`instagram-public.yml` is manual-only, separately gated by `ENABLE_INSTAGRAM_PUBLIC_CHECK=true`, and limited to three verified profile links per run. Inputs live only in private `instagram_profiles.csv` with columns `brand_id,profile_url,official_source_url,profile_link_verified`; verification must be the literal `true` and must come from an already verified official-site link. Public code contains no real accounts.
+
+The collector uses a declared bot user agent, checks robots.txt, and makes ordinary HTTPS GET requests to the public profile page only. It does not log in, send cookies, impersonate a browser, use proxies/private APIs, follow redirects, retry blocked requests, or circumvent access restrictions. robots denial/unavailability, login/challenge, 403/429 and other safety stops end the entire batch; remaining profiles get `skipped_after_stop`. A successful Actions run may therefore mean only that a blocked status was saved privately. Public-page availability does not establish permission under Meta's terms; the owner must separately assess the permitted use.
+
+Only profile-bound public HTML metadata is parsed. `raw_display`, `nullable_count`, `precision`, `observed_at`, `attempted_at` and `status` are distinct. An explicit observed `0` is exact zero; missing/error values are null. Rounded displays such as `1.2K` or `1.2만` stay raw with `precision=abbreviated` and no fabricated exact integer. Conflicting metadata stays unresolved. No legacy master field is changed automatically.
+
+Private outputs are `instagram_results.json`, `instagram_results.csv`, `instagram_results.xlsx` and append-only `instagram_history.json`. They use the already approved isolated private transfer steps and the existing concurrency group. No scheduled runs, new credentials, public logs containing accounts/counts, artifacts or caches are created. This pilot adds no Instagram permission or guarantee of successful collection.

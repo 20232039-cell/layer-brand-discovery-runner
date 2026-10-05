@@ -39,19 +39,22 @@ class GitHub:
         return self.request('GET','/git/ref/heads/main')['object']['sha']
 
 INPUTS=('candidates.csv','exclusions.json','checkpoint.json')
+PROFILE_INPUTS=('instagram_profiles.csv','instagram_history.json')
+PROFILE_OUTPUTS=('instagram_history.json','instagram_results.json','instagram_results.csv','instagram_results.xlsx')
 
-def download(api, root):
+def download(api, root, profile=False):
     api.verify_private()
     head=api.head()
     commit=api.request('GET','/git/commits/'+head)
     tree=api.request('GET','/git/trees/'+commit['tree']['sha'])
     entries={x['path']:x for x in tree['tree']}
-    if 'candidates.csv' not in entries or tree.get('truncated'):
+    required = 'instagram_profiles.csv' if profile else 'candidates.csv'
+    if required not in entries or tree.get('truncated'):
         raise SyncError()
     root.mkdir(mode=0o700,parents=True,exist_ok=False)
     (root/'.private-data-root').touch(mode=0o600)
     hashes={}
-    for name in INPUTS:
+    for name in (PROFILE_INPUTS if profile else INPUTS):
         if name not in entries:
             continue
         entry=entries[name]
@@ -65,31 +68,35 @@ def download(api, root):
             raise SyncError()
         (root/name).write_bytes(value)
         hashes[name]=hashlib.sha256(value).hexdigest()
-    atomic_json(root/'.sync-state.json',{'head':head,'tree':commit['tree']['sha'],'inputs':hashes})
+    atomic_json(root/'.sync-state.json',{'head':head,'tree':commit['tree']['sha'],'inputs':hashes,'profile_mode':profile})
 
-def output_files(root):
+def output_files(root, profile=False):
     # Never glob input directories or recursively upload a private checkout.
-    files=[root/x for x in ('checkpoint.json','review_queue.csv','review_queue.xlsx')]
-    files+=sorted((root/'evidence').glob('*.json'))
+    files=[root/x for x in (PROFILE_OUTPUTS if profile else ('checkpoint.json','review_queue.csv','review_queue.xlsx'))]
+    if not profile:
+        files+=sorted((root/'evidence').glob('*.json'))
     for file in files:
         rel=file.relative_to(root).as_posix()
-        if not (rel in ('checkpoint.json','review_queue.csv','review_queue.xlsx') or re.fullmatch(r'evidence/[0-9a-f]{64}\.json',rel)):
+        allowed = rel in PROFILE_OUTPUTS if profile else (rel in ('checkpoint.json','review_queue.csv','review_queue.xlsx') or re.fullmatch(r'evidence/[0-9a-f]{64}\.json',rel))
+        if not allowed:
             raise SyncError()
         if file.is_symlink() or root.resolve() not in file.resolve().parents or not file.is_file() or file.stat().st_size>10_000_000:
             raise SyncError()
     return files
 
-def upload(api, root):
+def upload(api, root, profile=False):
     api.verify_private()
     state=json.loads((root/'.sync-state.json').read_text())
+    if state.get('profile_mode', False) != profile:
+        raise SyncError()
     # Refuse overwrite of any concurrently updated private dataset.
     if api.head()!=state['head']:
         raise SyncError()
     for name,digest in state['inputs'].items():
-        if name!='checkpoint.json' and hashlib.sha256((root/name).read_bytes()).hexdigest()!=digest:
+        if name not in (('instagram_history.json',) if profile else ('checkpoint.json',)) and hashlib.sha256((root/name).read_bytes()).hexdigest()!=digest:
             raise SyncError()
     tree=[]
-    for file in output_files(root):
+    for file in output_files(root, profile=profile):
         api.verify_private()
         data=file.read_bytes()
         blob=api.request('POST','/git/blobs',{'content':base64.b64encode(data).decode(),'encoding':'base64'})
@@ -112,11 +119,12 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument('mode',choices=['download','upload'])
     p.add_argument('--root',required=True)
+    p.add_argument('--profile',action='store_true')
     args=p.parse_args()
     os.umask(0o077)
     try:
         api=GitHub()
-        (download if args.mode=='download' else upload)(api,Path(args.root).resolve())
+        (download if args.mode=='download' else upload)(api,Path(args.root).resolve(),profile=args.profile)
     except Exception:
         # No exception text, request URLs, private repository names or server body.
         sys.exit('Private data transfer stopped; no diagnostic data emitted.')

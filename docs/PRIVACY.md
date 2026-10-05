@@ -23,3 +23,7 @@
 ## Known limits
 
 Collection is a conservative homepage evidence pass. It cannot verify brand nationality, ownership, primary category, live inventory/cart behavior, or follower counts. Exclusions match normalized name and exact canonical URL only; alias and related-host identity require manual review. No raw HTML snapshots are stored. HTTP body decoding assumes UTF-8; non-UTF-8 pages can need manual review. Robots redirects fail closed. Each blocked/error candidate requires explicit retry selection. Human review, credential provisioning and live private persistence verification remain deployment work.
+
+## Public-profile pilot isolation
+
+The Instagram pilot uses a separate four-file private output allowlist and downloads only `instagram_profiles.csv` and optional `instagram_history.json`. Transfer mode is recorded and checked before upload. It shares the single private-data concurrency group, scopes the existing token only to transfer steps, and launches collection in a clean environment. Public workflow inputs contain no profile identity. Generic stop outcomes are stored privately, not echoed with account names or counts. No input or existing master dataset is overwritten by the collector.
