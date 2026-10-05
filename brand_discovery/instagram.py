@@ -3,22 +3,25 @@ import argparse
 import csv
 from datetime import datetime, timezone
 import hashlib
+import errno
+import http.client
 from html.parser import HTMLParser
 import json
 import os
 from pathlib import Path
 import re
 import ssl
+import socket
 import sys
 import time
 from urllib.parse import urlsplit, urljoin
-from .collector import PinnedTLS, atomic_json, validate_private_root, write_csv
+from .collector import Refused, PinnedTLS, atomic_json, validate_private_root, write_csv
 from .xlsx import write_xlsx
 
 AGENT = 'LayerPublicProfileEvidence/0.1'
 HOST = 'www.instagram.com'
 STOP_STATUSES = {'robots_disallow','robots_unavailable','login_required','challenge',
-                 'country_restricted','rate_budget_exceeded','http_451','http_5xx','http_401','http_403','http_429','http_500','http_502','http_503','redirect_refused','identity_mismatch',
+                 'internal_error','country_restricted','rate_budget_exceeded','http_451','http_5xx','http_401','http_403','http_429','http_500','http_502','http_503','redirect_refused','identity_mismatch',
                  'response_too_large','network_error','unsupported_response'}
 RESERVED = {'accounts','explore','p','reel','reels','stories','direct','about','developer','legal','challenge','web','api'}
 
@@ -108,6 +111,22 @@ def parse_profile(html,url):
     result['profile_identity_verified']=True
     return result
 
+def classify_error(exc):
+    """Coarse non-sensitive classes only. Never store exception messages/URLs."""
+    if isinstance(exc, Refused):return 'address_policy_refused'
+    if isinstance(exc, socket.gaierror):return 'dns_error'
+    if isinstance(exc, ssl.SSLError):return 'tls_error'
+    if isinstance(exc, (TimeoutError, socket.timeout)):return 'timeout'
+    if isinstance(exc, http.client.HTTPException):return 'http_protocol_error'
+    if isinstance(exc, ConnectionRefusedError):return 'connection_refused'
+    if isinstance(exc, ConnectionResetError):return 'connection_reset'
+    if isinstance(exc, OSError):
+        if exc.errno==errno.ENETUNREACH:return 'network_unreachable'
+        if exc.errno==errno.EHOSTUNREACH:return 'host_unreachable'
+        if exc.errno==errno.EAFNOSUPPORT:return 'address_family_unavailable'
+        return 'connection_error'
+    return 'unclassified_internal_error'
+
 class PublicFetcher:
     def __init__(self):self.last=0;self.delay=5
     def raw(self,path):
@@ -121,14 +140,17 @@ class PublicFetcher:
             response=conn.getresponse();body=response.read(2_000_001)
             if len(body)>2_000_000:return 'response_too_large',{},b''
             return response.status,{k.lower():v for k,v in response.getheaders()},body
-        except Exception:return 'network_error',{},b''
+        except Exception as exc:
+            category=classify_error(exc)
+            status='internal_error' if category=='unclassified_internal_error' else 'network_error'
+            return status,{'_error_category':category},b''
         finally:conn.close()
     def get(self,url):
         handle=profile_identity(url);url='https://'+HOST+'/'+handle+'/'
         # Owner-requested normal public GET; no robots precheck or alternate route.
         status,headers,body=self.raw('/'+handle+'/')
         if status in (403,429):return {'status':'http_'+str(status)}
-        if isinstance(status,str):return {'status':status}
+        if isinstance(status,str):return {'status':status,'error_category':headers.get('_error_category')}
         if status in (301,302,303,307,308):
             # No redirect is followed. In particular, never follow a login flow.
             target=urljoin(url,headers.get('location',''))
@@ -153,17 +175,19 @@ def run(root,fetcher=None):
         result={'brand_id':row.get('brand_id',''),'profile_url':row['profile_url'],
                 'raw_display':None,'nullable_count':None,'precision':'unknown',
                 'observed_at':None,'attempted_at':None,
-                'status':'skipped_after_stop','source_record':dict(row)}
+                'status':'skipped_after_stop','error_category':None,'source_record':dict(row)}
         if not halted:
             result['attempted_at']=datetime.now(timezone.utc).isoformat()
             try:observed=fetcher.get(row['profile_url'])
-            except Exception:observed={'status':'network_error'}
+            except Exception as exc:
+                category=classify_error(exc)
+                observed={'status':'internal_error' if category=='unclassified_internal_error' else 'network_error','error_category':category}
             result.update(observed)
             if result['status'].startswith('observed_'):
                 result['observed_at']=datetime.now(timezone.utc).isoformat()
             if result['status'] in STOP_STATUSES:halted=True
         results.append(result)
-    report={'schema_version':1,'run_completed_at':datetime.now(timezone.utc).isoformat(),
+    report={'schema_version':2,'run_completed_at':datetime.now(timezone.utc).isoformat(),
             'stopped_early':halted,'logged_out_public_html_only':True,'robots_precheck_performed':False,'results':results}
     # A new run never replaces a previous exact success with a fake zero.
     history_path=root/'instagram_history.json'
@@ -171,7 +195,7 @@ def run(root,fetcher=None):
     history.append(report)
     atomic_json(history_path,history)
     atomic_json(root/'instagram_results.json',report)
-    fields=['brand_id','profile_url','raw_display','nullable_count','precision','observed_at','attempted_at','status']
+    fields=['brand_id','profile_url','raw_display','nullable_count','precision','observed_at','attempted_at','status','error_category']
     rows=[{k:('' if r.get(k) is None else r.get(k)) for k in fields} for r in results]
     write_csv(root/'instagram_results.csv',rows,fields)
     write_xlsx(root/'instagram_results.xlsx',rows,fields)

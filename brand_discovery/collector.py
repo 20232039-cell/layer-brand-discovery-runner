@@ -40,7 +40,9 @@ def public_ip(host):
     ips = {a[4][0] for a in addresses}
     if not ips or any(not ipaddress.ip_address(x).is_global for x in ips):
         raise Refused('non_public_address')
-    return sorted(ips)[0]
+    # Prefer IPv4 when both families are available; some runners have no IPv6
+    # route. Still validate every resolved address and pin one public IP only.
+    return min(ips, key=lambda value: (ipaddress.ip_address(value).version, int(ipaddress.ip_address(value))))
 
 class PinnedTLS(http.client.HTTPSConnection):
     def connect(self):
