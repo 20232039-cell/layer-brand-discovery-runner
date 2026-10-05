@@ -6,7 +6,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
-from brand_discovery.instagram import parse_number, parse_profile, profile_identity, PublicFetcher, run
+from brand_discovery.instagram import parse_number, parse_profile, profile_identity, PublicFetcher, run, classify_redirect
 from brand_discovery.private_sync import output_files, SyncError
 
 URL='https://www.instagram.com/synthetic_test_01/'
@@ -75,6 +75,17 @@ class InstagramTests(unittest.TestCase):
             with patch.object(f,'raw',return_value=(200,{'content-type':'text/html'},html.encode())) as raw:
                 self.assertEqual(f.get(URL)['status'],expected)
                 raw.assert_called_once_with('/synthetic_test_01/')
+
+    def test_redirect_query_and_similar_path_are_not_login_destination(self):
+        for location in ['/synthetic_test_01/?next=/accounts/login/', '/accounts/login-help/', 'https://example.invalid/accounts/login/']:
+            r=classify_redirect(URL,location,302)
+            self.assertEqual(r['status'],'redirect_refused')
+            self.assertNotIn('location',r)
+        r=classify_redirect(URL,'/accounts/login/?next=synthetic',302)
+        self.assertEqual(r['status'],'login_required')
+        self.assertEqual(r['restriction_evidence'],'login_destination_path')
+        self.assertEqual(r['http_status'],302)
+        self.assertNotIn('synthetic',str(r))
 
     def write_input(self,root,count=3):
         with (root/'instagram_profiles.csv').open('w',newline='') as f:

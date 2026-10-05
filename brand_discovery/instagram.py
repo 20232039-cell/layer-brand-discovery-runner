@@ -127,6 +127,23 @@ def classify_error(exc):
         return 'connection_error'
     return 'unclassified_internal_error'
 
+def classify_redirect(requested_url, location, http_status):
+    """Classify only parsed destination host/path; never retain query or raw Location."""
+    result={'status':'redirect_refused','http_status':http_status,
+            'restriction_evidence':'redirect_destination_other','response_kind':'redirect'}
+    try:
+        target=urlsplit(urljoin(requested_url,location))
+        if target.scheme!='https' or target.hostname not in (HOST,'instagram.com') or target.username or target.password or target.port not in (None,443):
+            return {**result,'restriction_evidence':'redirect_destination_outside_scope'}
+        path=target.path
+        if path=='/accounts/login' or path.startswith('/accounts/login/'):
+            return {**result,'status':'login_required','restriction_evidence':'login_destination_path'}
+        if any(path==x or path.startswith(x+'/') for x in ('/challenge','/checkpoint')):
+            return {**result,'status':'challenge','restriction_evidence':'challenge_destination_path'}
+    except ValueError:
+        return {**result,'restriction_evidence':'invalid_redirect_destination'}
+    return result
+
 class PublicFetcher:
     def __init__(self):self.last=0;self.delay=5
     def raw(self,path):
@@ -153,15 +170,16 @@ class PublicFetcher:
         if isinstance(status,str):return {'status':status,'error_category':headers.get('_error_category')}
         if status in (301,302,303,307,308):
             # No redirect is followed. In particular, never follow a login flow.
-            target=urljoin(url,headers.get('location',''))
-            if '/accounts/login' in target:return {'status':'login_required'}
-            if '/challenge' in target or '/checkpoint' in target:return {'status':'challenge'}
-            return {'status':'redirect_refused'}
+            return classify_redirect(url,headers.get('location',''),status)
         if status>=500:return {'status':'http_5xx'}
         if status!=200:return {'status':'http_'+str(status)}
         if 'text/html' not in headers.get('content-type',''):return {'status':'unsupported_response'}
         result=parse_profile(body.decode('utf-8','replace'),url)
         result['response_sha256']=hashlib.sha256(body).hexdigest()
+        result['http_status']=status
+        result['response_kind']='html'
+        if result['status']=='login_required':
+            result['restriction_evidence']='static_html_login_hint_not_rendered_wall'
         return result
 
 def run(root,fetcher=None):

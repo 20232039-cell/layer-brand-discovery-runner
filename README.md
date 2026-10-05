@@ -59,3 +59,9 @@ Private outputs are `instagram_results.json`, `instagram_results.csv`, `instagra
 The first Instagram pilot stopped at robots precheck before any profile GET. That private history remains intact; later manually authorized observations record `robots_precheck_performed=false` without overwriting earlier outcomes. No automatic retry follows any access restriction.
 
 Network diagnostics are coarse private categories (DNS, timeout, TLS, connection/routing, or internal error), never raw exception text, URLs or headers. A generic legacy `network_error` cannot retrospectively establish whether a request reached Instagram. When DNS offers both address families, the connection selects one validated public IPv4 address first; IPv6-only answers remain IPv6. There are no connection retries, alternative hosts, proxies, TLS-verification changes or user-agent changes. Every resolved address is still checked for SSRF safety before selecting one.
+
+## Offline rendered-UI prototype
+
+A separate synthetic Chromium CI tests visible profile identity/counts, login CTA versus an authentication form or overlay, hidden/occluded content and exact login-path classification. It has no private inputs or secrets: documents use `set_content`, the context is offline, and every page request is aborted. Official browser installation downloads are separate from the offline tests. This does not enable Instagram browser collection or prove access to any real profile. See `docs/RENDERED_PROFILE_DESIGN.md` for the remaining admission, cookie-policy and live-rendering checks.
+
+Legacy HTTP login results without preserved Location cannot prove a rendered login wall. Future HTTP redirect classification uses the parsed destination host and pathname, so a login path appearing only inside a query no longer becomes a login verdict. New private evidence includes response type, exact HTTP status and a coarse restriction class, without storing raw Location or its query.

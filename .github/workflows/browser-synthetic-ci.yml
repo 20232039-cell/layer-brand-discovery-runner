@@ -1,0 +1,27 @@
+name: offline-chromium-synthetic-tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  browser-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install official browser test dependencies
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/browser-ci-venv"
+          "$RUNNER_TEMP/browser-ci-venv/bin/pip" install --index-url https://pypi.org/simple -r requirements-browser-ci.txt
+          "$RUNNER_TEMP/browser-ci-venv/bin/python" -m playwright install --with-deps chromium
+      - name: Run ordinary offline unit tests
+        run: |
+          "$RUNNER_TEMP/browser-ci-venv/bin/python" -m unittest discover -s tests -v
+      - name: Render synthetic documents with all page requests blocked
+        run: |
+          "$RUNNER_TEMP/browser-ci-venv/bin/python" -m unittest discover -s browser_tests -v
