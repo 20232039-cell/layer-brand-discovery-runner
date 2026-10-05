@@ -22,6 +22,6 @@ jobs:
       - name: Run ordinary offline unit tests
         run: |
           "$RUNNER_TEMP/browser-ci-venv/bin/python" -m unittest discover -s tests -v
-      - name: Render synthetic documents with all page requests blocked
+      - name: Render synthetic fixtures with external requests blocked
         run: |
           "$RUNNER_TEMP/browser-ci-venv/bin/python" -m unittest discover -s browser_tests -v

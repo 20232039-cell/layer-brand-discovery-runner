@@ -40,21 +40,23 @@ class GitHub:
 
 INPUTS=('candidates.csv','exclusions.json','checkpoint.json')
 PROFILE_INPUTS=('instagram_profiles.csv','instagram_history.json')
+RENDERED_INPUTS=('instagram_browser_profile.csv','instagram_history.json')
 PROFILE_OUTPUTS=('instagram_history.json','instagram_results.json','instagram_results.csv','instagram_results.xlsx')
 
-def download(api, root, profile=False):
+def download(api, root, profile=False, rendered=False):
+    if rendered and not profile:raise SyncError()
     api.verify_private()
     head=api.head()
     commit=api.request('GET','/git/commits/'+head)
     tree=api.request('GET','/git/trees/'+commit['tree']['sha'])
     entries={x['path']:x for x in tree['tree']}
-    required = 'instagram_profiles.csv' if profile else 'candidates.csv'
-    if required not in entries or tree.get('truncated'):
+    required = 'instagram_browser_profile.csv' if rendered else ('instagram_profiles.csv' if profile else 'candidates.csv')
+    if required not in entries or tree.get('truncated') or (rendered and 'instagram_history.json' not in entries):
         raise SyncError()
     root.mkdir(mode=0o700,parents=True,exist_ok=False)
     (root/'.private-data-root').touch(mode=0o600)
     hashes={}
-    for name in (PROFILE_INPUTS if profile else INPUTS):
+    for name in (RENDERED_INPUTS if rendered else (PROFILE_INPUTS if profile else INPUTS)):
         if name not in entries:
             continue
         entry=entries[name]
@@ -68,7 +70,7 @@ def download(api, root, profile=False):
             raise SyncError()
         (root/name).write_bytes(value)
         hashes[name]=hashlib.sha256(value).hexdigest()
-    atomic_json(root/'.sync-state.json',{'head':head,'tree':commit['tree']['sha'],'inputs':hashes,'profile_mode':profile})
+    atomic_json(root/'.sync-state.json',{'head':head,'tree':commit['tree']['sha'],'inputs':hashes,'profile_mode':profile,'rendered_mode':rendered})
 
 def output_files(root, profile=False):
     # Never glob input directories or recursively upload a private checkout.
@@ -84,10 +86,11 @@ def output_files(root, profile=False):
             raise SyncError()
     return files
 
-def upload(api, root, profile=False):
+def upload(api, root, profile=False, rendered=False):
+    if rendered and not profile:raise SyncError()
     api.verify_private()
     state=json.loads((root/'.sync-state.json').read_text())
-    if state.get('profile_mode', False) != profile:
+    if state.get('profile_mode', False) != profile or state.get('rendered_mode', False) != rendered:
         raise SyncError()
     # Refuse overwrite of any concurrently updated private dataset.
     if api.head()!=state['head']:
@@ -120,11 +123,12 @@ def main():
     p.add_argument('mode',choices=['download','upload'])
     p.add_argument('--root',required=True)
     p.add_argument('--profile',action='store_true')
+    p.add_argument('--rendered',action='store_true')
     args=p.parse_args()
     os.umask(0o077)
     try:
         api=GitHub()
-        (download if args.mode=='download' else upload)(api,Path(args.root).resolve(),profile=args.profile)
+        (download if args.mode=='download' else upload)(api,Path(args.root).resolve(),profile=args.profile,rendered=args.rendered)
     except Exception:
         # No exception text, request URLs, private repository names or server body.
         sys.exit('Private data transfer stopped; no diagnostic data emitted.')

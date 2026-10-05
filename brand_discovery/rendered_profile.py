@@ -32,7 +32,7 @@ def assess_visible_snapshot(snapshot):
     """
     result={'status':'public_profile_unconfirmed','stop_batch':False,
             'raw_display':None,'nullable_count':None,'precision':'unknown',
-            'observed_at':None,'evidence_kind':'rendered_visible_profile_header',
+            'observed_at':None,'evidence_kind':'rendered_page_inspection',
             'evidence_url':snapshot.requested_url,'restriction_evidence':None}
     def stop(status,evidence):
         return {**result,'status':status,'stop_batch':True,'restriction_evidence':evidence}
@@ -66,6 +66,7 @@ def assess_visible_snapshot(snapshot):
     count,precision=parse_number(raw)
     return {**result,'status':'observed_'+precision,'raw_display':raw,
             'nullable_count':count,'precision':precision,'observed_at':snapshot.captured_at,
+            'evidence_kind':'rendered_visible_profile_header',
             'login_cta_visible':snapshot.login_cta_visible,
             'login_form_visible':snapshot.login_form_visible}
 

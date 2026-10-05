@@ -96,3 +96,13 @@ class ProfileSyncTests(unittest.TestCase):
             self.assertEqual(len(tree),4)
             self.assertTrue(all(x['path'].startswith('instagram_') for x in tree))
             self.assertNotIn('NOT_FOR_PROFILE_UPLOAD',str(api.calls))
+
+class RenderedSyncTests(unittest.TestCase):
+    def test_rendered_download_requires_history(self):
+        class API(FakeAPI):
+            def request(self,method,path,data=None):
+                if path.startswith('/git/trees/'):
+                    return {'tree':[{'path':'instagram_browser_profile.csv','type':'blob','mode':'100644','sha':'c'*40,'size':100}]}
+                return super().request(method,path,data)
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(SyncError):download(API(),Path(td)/'data',profile=True,rendered=True)

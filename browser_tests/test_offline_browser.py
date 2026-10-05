@@ -18,7 +18,7 @@ class OfflineBrowserTests(unittest.TestCase):
         # Native browser content setting; not imported cookies or credentials.
         (root/'Preferences').write_text(json.dumps({'profile':{'default_content_setting_values':{'cookies':2},'block_third_party_cookies':True}}))
         cls.pw=sync_playwright().start()
-        cls.context=cls.pw.chromium.launch_persistent_context(cls.temp.name,headless=True,offline=True,service_workers='block',ignore_https_errors=False)
+        cls.context=cls.pw.chromium.launch_persistent_context(cls.temp.name,channel='chromium',headless=True,offline=True,service_workers='block',ignore_https_errors=False)
         cls.aborted=[]
         def deny(route):
             cls.aborted.append(route.request.url);route.abort()

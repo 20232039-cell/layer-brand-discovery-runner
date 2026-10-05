@@ -1,0 +1,49 @@
+name: one-new-public-profile-ui-check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: private-project-data-build
+  cancel-in-progress: false
+jobs:
+  observe:
+    if: ${{ vars.ENABLE_INSTAGRAM_BROWSER_CHECK == 'true' && github.ref == 'refs/heads/main' && github.repository == '20232039-cell/layer-brand-discovery-runner' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Install official browser runtime
+        run: |
+          python3 -m venv "$RUNNER_TEMP/browser-venv"
+          "$RUNNER_TEMP/browser-venv/bin/pip" install --index-url https://pypi.org/simple -r requirements-browser-ci.txt
+          "$RUNNER_TEMP/browser-venv/bin/python" -m playwright install --with-deps chromium
+      - name: Read one approved private input and prior history
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPOSITORY: ${{ secrets.DATA_REPOSITORY }}
+        run: |
+          set +x
+          python3 -m brand_discovery.private_sync download --profile --rendered --root "$RUNNER_TEMP/layer-private" >/dev/null 2>&1 || { echo 'Private input transfer failed.'; exit 1; }
+      - name: Observe one never-requested public profile
+        run: |
+          set +x
+          env -i PATH="$RUNNER_TEMP/browser-venv/bin:$PATH" HOME="$RUNNER_TEMP" PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" LAYER_APPROVED_BROWSER_ONE_SHOT=true \
+            "$RUNNER_TEMP/browser-venv/bin/python" -m brand_discovery.instagram_browser --private-root "$RUNNER_TEMP/layer-private" \
+            >/dev/null 2>&1 || { echo 'Private rendered observation stopped.'; exit 1; }
+      - name: Save private result and preserve prior history
+        env:
+          DATA_TOKEN: ${{ secrets.DATA_TOKEN }}
+          DATA_REPOSITORY: ${{ secrets.DATA_REPOSITORY }}
+        run: |
+          set +x
+          python3 -m brand_discovery.private_sync upload --profile --rendered --root "$RUNNER_TEMP/layer-private" >/dev/null 2>&1 || { echo 'Private output transfer failed.'; exit 1; }
+      - name: Remove temporary private files
+        if: ${{ always() }}
+        run: |
+          set +x
+          python3 -c 'import os,shutil; shutil.rmtree(os.path.join(os.environ["RUNNER_TEMP"], "layer-private"), ignore_errors=True)' >/dev/null 2>&1
