@@ -5,10 +5,9 @@ import json
 import os
 from pathlib import Path
 import sys
-import tempfile
 import time
 from .browser_policy import admit_profile,BrowserPolicy
-from .browser_runtime import create_context,verify_cookie_policy
+from .browser_runtime import create_context
 from .browser_redirect_guard import install_response_guard
 from .browser_snapshot import snapshot_from_loaded_page
 from .rendered_profile import assess_visible_snapshot
@@ -23,68 +22,67 @@ def observe_one(row,root):
     identity=profile_identity(row['profile_url']);target='https://www.instagram.com/'+identity+'/'
     result={'brand_id':row.get('brand_id',''),'profile_url':row['profile_url'],'source_record':dict(row),
             'raw_display':None,'nullable_count':None,'precision':'unknown','observed_at':None,
-            'attempted_at':None,'status':'cookie_policy_unverified','error_category':None,
+            'attempted_at':None,'status':'browser_not_started','error_category':None,
             'evidence_kind':'no_profile_observation','evidence_url':target,
             'profile_navigation_attempted':False,'restriction_evidence':None}
     policy=BrowserPolicy(target)
-    with tempfile.TemporaryDirectory(dir=root,prefix='ephemeral-browser-') as profile:
-        with sync_playwright() as pw:
-            context=create_context(pw,profile)
-            try:
-                if not verify_cookie_policy(context):return result
-                if context.cookies():return result
-                page=context.new_page();page.set_default_timeout(1000)
-                def route_request(route):
-                    try:
-                        request=route.request
-                        main=request.is_navigation_request() and request.frame==page.main_frame
-                        if request.is_navigation_request() and request.frame!=page.main_frame:
-                            policy.blocked_resources+=1;route.abort();return
-                        if policy.permit(request.url,request.method,request.resource_type,main,request.all_headers()):route.continue_()
-                        else:route.abort()
-                    except Exception:
-                        policy.block('request_policy_error','request_context_not_verified');route.abort()
-                def response(response):
-                    try:
-                        if response.status in (401,403,429,451):
-                            policy.block('http_'+str(response.status),'response_access_restriction')
-                        if response.request.is_navigation_request() and response.request.frame==page.main_frame:
-                            policy.navigation_response(response.status)
-                    except Exception:policy.block('request_policy_error','response_context_not_verified')
-                context.route('**/*',route_request)
-                context.route_web_socket('**/*',lambda socket:socket.close())
-                page.on('response',response)
-                install_response_guard(context,page,policy)
-                context.set_offline(False)
-                result['attempted_at']=now();result['profile_navigation_attempted']=True
+    with sync_playwright() as pw:
+        browser,context=create_context(pw)
+        try:
+            page=context.new_page();page.set_default_timeout(1000)
+            def route_request(route):
                 try:
-                    page.goto(target,wait_until='domcontentloaded',timeout=20000)
-                    deadline=time.monotonic()+8
-                    while time.monotonic()<deadline and not policy.stop:
-                        snapshot=snapshot_from_loaded_page(page,target,page.url,now(),policy.http_status)
-                        decision=assess_visible_snapshot(snapshot)
-                        if decision['stop_batch'] or decision['status'].startswith('observed_'):
-                            result.update(decision);break
-                        result.update(decision)
-                        page.wait_for_timeout(400)
-                except BrowserTimeout:
-                    result.update(status='render_timeout',error_category='timeout')
-                except Exception as exc:
-                    result.update(status='render_error',error_category=classify_error(exc))
-                if policy.stop:
-                    result.update(policy.stop);result['error_category']=None
-                    result['evidence_kind']='navigation_or_request_restriction'
-                if not result['status'].startswith('observed_'):
-                    result.update(raw_display=None,nullable_count=None,precision='unknown',observed_at=None)
-                result['http_status']=policy.http_status
-                result['initial_navigation_requests']=policy.navigation_count
-                result['blocked_resource_requests']=policy.blocked_resources
-                if result['status'] in ('count_not_visible','public_profile_unconfirmed') and policy.blocked_resources:
-                    result['status']='rendering_incomplete_policy'
-                return result
-            finally:
-                try:context.close()
-                except Exception:result['cleanup_error']='browser_close_error'
+                    request=route.request
+                    main=request.is_navigation_request() and request.frame==page.main_frame
+                    if request.is_navigation_request() and request.frame!=page.main_frame:
+                        policy.blocked_resources+=1;route.abort();return
+                    if policy.permit(request.url,request.method,request.resource_type,main,{name:'present' for name in ('authorization','proxy-authorization') if request.header_value(name) is not None}):route.continue_()
+                    else:route.abort()
+                except Exception:
+                    policy.block('request_policy_error','request_context_not_verified');route.abort()
+            def response(response):
+                try:
+                    if response.status in (401,403,429,451):
+                        policy.block('http_'+str(response.status),'response_access_restriction')
+                    if response.request.is_navigation_request() and response.request.frame==page.main_frame:
+                        policy.navigation_response(response.status)
+                except Exception:policy.block('request_policy_error','response_context_not_verified')
+            context.route('**/*',route_request)
+            context.route_web_socket('**/*',lambda socket:socket.close())
+            page.on('response',response)
+            install_response_guard(context,page,policy)
+            context.set_offline(False)
+            result['attempted_at']=now();result['profile_navigation_attempted']=True
+            try:
+                page.goto(target,wait_until='domcontentloaded',timeout=20000)
+                deadline=time.monotonic()+8
+                while time.monotonic()<deadline and not policy.stop:
+                    snapshot=snapshot_from_loaded_page(page,target,page.url,now(),policy.http_status)
+                    decision=assess_visible_snapshot(snapshot)
+                    if decision['stop_batch'] or decision['status'].startswith('observed_'):
+                        result.update(decision);break
+                    result.update(decision)
+                    page.wait_for_timeout(400)
+            except BrowserTimeout:
+                result.update(status='render_timeout',error_category='timeout')
+            except Exception as exc:
+                result.update(status='render_error',error_category=classify_error(exc))
+            if policy.stop:
+                result.update(policy.stop);result['error_category']=None
+                result['evidence_kind']='navigation_or_request_restriction'
+            if not result['status'].startswith('observed_'):
+                result.update(raw_display=None,nullable_count=None,precision='unknown',observed_at=None)
+            result['http_status']=policy.http_status
+            result['initial_navigation_requests']=policy.navigation_count
+            result['blocked_resource_requests']=policy.blocked_resources
+            if result['status'] in ('count_not_visible','public_profile_unconfirmed') and policy.blocked_resources:
+                result['status']='rendering_incomplete_policy'
+            return result
+        finally:
+            try:context.close()
+            except Exception:result['cleanup_error']='context_close_error'
+            try:browser.close()
+            except Exception:result['cleanup_error']='browser_close_error'
 
 def run(root):
     history_path=root/'instagram_history.json'

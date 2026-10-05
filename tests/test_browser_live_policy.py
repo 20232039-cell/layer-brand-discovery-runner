@@ -38,10 +38,13 @@ class BrowserLivePolicyTests(unittest.TestCase):
         for url,kind in [('https://www.instagram.com/api/v1/public','fetch'),('https://www.instagram.com/graphql/query','xhr'),('https://static.cdninstagram.com/rsrc.php/v4/x.js','fetch'),('https://example.invalid/x.js','script'),('https://127.0.0.1/static/x.js','script'),('https://static.cdninstagram.com/static/%2e%2e/api/x','script')]:
             self.assertFalse(p.permit(url,'GET',kind,False,{}))
     def test_credentials_and_non_public_dns_stop(self):
-        for headers in [{'Cookie':'SYNTHETIC_ONLY'},{'Authorization':'SYNTHETIC_ONLY'}]:
+        for headers in [{'Proxy-Authorization':'SYNTHETIC_ONLY'},{'Authorization':'SYNTHETIC_ONLY'}]:
             p=self.policy();self.assertFalse(p.permit(URL,'GET','document',True,headers));self.assertEqual(p.stop['status'],'credential_boundary_violation')
         p=BrowserPolicy(URL,resolver=Mock(side_effect=ValueError('synthetic private address')))
         self.assertFalse(p.permit(URL,'GET','document',True,{}));self.assertEqual(p.stop['status'],'address_policy_refused')
+    def test_anonymous_cookie_is_not_treated_as_imported_authentication(self):
+        p=self.policy();self.assertTrue(p.permit(URL,'GET','document',True,{'Cookie':'SYNTHETIC_FIXTURE_ONLY'}))
+
     def test_http_restrictions_stop_and_no_later_requests(self):
         for code in [401,403,429,451,503]:
             p=self.policy();p.navigation_response(code)
@@ -50,11 +53,20 @@ class BrowserLivePolicyTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[1]
         text=(root/'.github/workflows/instagram-browser-one-shot.yml').read_text()
         self.assertIn('ENABLE_INSTAGRAM_BROWSER_CHECK',text)
+        self.assertNotIn('${{ runner.temp }}',text)
         self.assertIn('workflow_dispatch:',text);self.assertIn('env -i',text)
         for forbidden in ['schedule:','inputs.','upload-artifact','download-artifact','actions/cache','GITHUB_OUTPUT','GITHUB_STEP_SUMMARY']:
             self.assertNotIn(forbidden,text)
         execution=text.split('name: Observe one never-requested public profile')[1].split('name: Save private result')[0]
         self.assertNotIn('secrets.',execution)
+    def test_runtime_never_imports_or_reads_cookie_values(self):
+        root=Path(__file__).resolve().parents[1]
+        runtime=(root/'brand_discovery/browser_runtime.py').read_text()
+        collector=(root/'brand_discovery/instagram_browser.py').read_text()
+        for forbidden in ['launch_persistent_context','storage_state','add_cookies','context.cookies(','.all_headers()', 'user_agent=', 'proxy=', 'http_credentials=']:
+            self.assertNotIn(forbidden,runtime+collector)
+        self.assertIn('browser.new_context(',runtime)
+
     def test_output_keeps_previous_failure_history_and_nulls(self):
         with tempfile.TemporaryDirectory() as td:
             root=Path(td);self.input(root);old={'results':[{'profile_url':'https://www.instagram.com/synthetic_old_01/','status':'login_required','attempted_at':'synthetic-time'},{'profile_url':URL,'status':'skipped_after_stop','attempted_at':None}]}

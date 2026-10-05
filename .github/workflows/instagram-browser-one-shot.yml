@@ -11,14 +11,13 @@ jobs:
     if: ${{ vars.ENABLE_INSTAGRAM_BROWSER_CHECK == 'true' && github.ref == 'refs/heads/main' && github.repository == '20232039-cell/layer-brand-discovery-runner' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/pw-browsers
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
       - name: Install official browser runtime
         run: |
+          export PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pw-browsers"
           python3 -m venv "$RUNNER_TEMP/browser-venv"
           "$RUNNER_TEMP/browser-venv/bin/pip" install --index-url https://pypi.org/simple -r requirements-browser-ci.txt
           "$RUNNER_TEMP/browser-venv/bin/python" -m playwright install --with-deps chromium
@@ -32,7 +31,7 @@ jobs:
       - name: Observe one never-requested public profile
         run: |
           set +x
-          env -i PATH="$RUNNER_TEMP/browser-venv/bin:$PATH" HOME="$RUNNER_TEMP" PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_BROWSERS_PATH" LAYER_APPROVED_BROWSER_ONE_SHOT=true \
+          env -i PATH="$RUNNER_TEMP/browser-venv/bin:$PATH" HOME="$RUNNER_TEMP" PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pw-browsers" LAYER_APPROVED_BROWSER_ONE_SHOT=true \
             "$RUNNER_TEMP/browser-venv/bin/python" -m brand_discovery.instagram_browser --private-root "$RUNNER_TEMP/layer-private" \
             >/dev/null 2>&1 || { echo 'Private rendered observation stopped.'; exit 1; }
       - name: Save private result and preserve prior history

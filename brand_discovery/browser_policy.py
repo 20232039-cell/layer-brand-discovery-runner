@@ -48,7 +48,7 @@ class BrowserPolicy:
         if not safe:
             self.blocked_resources+=1
             return self.block('redirect_refused','navigation_outside_scope') if is_main_navigation else False
-        if any(k.lower() in ('cookie','authorization','proxy-authorization') and v for k,v in headers.items()):
+        if any(k.lower() in ('authorization','proxy-authorization') and v for k,v in headers.items()):
             return self.block('credential_boundary_violation','credential_header_present')
         if method!='GET':self.blocked_resources+=1;return False
         path=p.path

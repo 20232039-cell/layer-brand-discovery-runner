@@ -14,18 +14,17 @@ BASE='<h1>synthetic_rendered_01</h1><a href="/synthetic_rendered_01/followers/">
 class OfflineBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.temp=tempfile.TemporaryDirectory();root=Path(cls.temp.name)/'Default';root.mkdir()
-        # Native browser content setting; not imported cookies or credentials.
-        (root/'Preferences').write_text(json.dumps({'profile':{'default_content_setting_values':{'cookies':2},'block_third_party_cookies':True}}))
+        cls.temp=tempfile.TemporaryDirectory()
         cls.pw=sync_playwright().start()
-        cls.context=cls.pw.chromium.launch_persistent_context(cls.temp.name,channel='chromium',headless=True,offline=True,service_workers='block',ignore_https_errors=False)
+        cls.browser=cls.pw.chromium.launch(channel='chromium',headless=True)
+        cls.context=cls.browser.new_context(offline=True,service_workers='block',ignore_https_errors=False)
         cls.aborted=[]
         def deny(route):
             cls.aborted.append(route.request.url);route.abort()
         cls.context.route('**/*',deny)
     @classmethod
     def tearDownClass(cls):
-        cls.context.close();cls.pw.stop();cls.temp.cleanup()
+        cls.context.close();cls.browser.close();cls.pw.stop();cls.temp.cleanup()
     def setUp(self):self.page=self.context.new_page()
     def tearDown(self):self.page.close()
     def observe(self,html,document_url=PROFILE,http_status=200):
@@ -61,10 +60,10 @@ class OfflineBrowserTests(unittest.TestCase):
         self.page.wait_for_timeout(100)
         self.assertGreater(len(self.aborted),before)
         self.assertEqual(self.page.url,'about:blank')
-    def test_no_recorded_cookies_or_browser_artifacts(self):
+    def test_no_browser_recording_artifacts(self):
         self.observe(BASE)
-        self.assertEqual(self.context.cookies(),[])
-        # This checks the about:blank fixture only; full cookie-policy canary is separate.
+        self.assertEqual(self.page.url,'about:blank')
+        # Session isolation is tested separately against a loopback fixture.
         self.assertFalse(any(Path(self.temp.name).rglob('*.har')))
 
 if __name__=='__main__':unittest.main()
